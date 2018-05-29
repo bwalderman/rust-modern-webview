@@ -1,0 +1,12 @@
+[package]
+name = "modern_webview_sys"
+version = "0.1.0"
+authors = ["Brandon Walderman <bwalderman@outlook.com>"]
+
+[lib]
+name = "modern_webview_sys"
+path = "lib.rs"
+
+[build-dependencies]
+cc = { git = "https://github.com/bwalderman/cc-rs", branch = "master" }
+bindgen = "0.37.0"
