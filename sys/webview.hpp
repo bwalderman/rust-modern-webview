@@ -4,10 +4,16 @@
 
 extern "C"
 {
+    enum class ContentType : uint32_t
+    {
+        Url = 1,
+        Html = 2
+    };
+
     void* webview_new(
         const char* title,
-        const char* url,
-        const char* html,
+        const char* const content,
+        const ContentType contentType,
         int32_t width,
         int32_t height,
         bool resizable) noexcept;

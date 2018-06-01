@@ -8,6 +8,7 @@ fn main() {
 
     let bindings = bindgen::Builder::default()
         .header("webview.hpp")
+        .whitelist_type("ContentType")
         .whitelist_function("webview_new")
         .whitelist_function("webview_run")
         .whitelist_function("webview_free")

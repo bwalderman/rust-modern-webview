@@ -30,13 +30,13 @@ impl WebView {
             Content::Url(url) => {
                 let url = CString::new(url.into()).unwrap();
                 unsafe {
-                    window = webview_new(title.as_ptr(), url.as_ptr(), ptr::null(), size.0, size.1, resizable);
+                    window = webview_new(title.as_ptr(), url.as_ptr(), ContentType_Url, size.0, size.1, resizable);
                 };
             },
             Content::Html(html) => {
                 let html = CString::new(html.into()).unwrap();
                 unsafe {
-                    window = webview_new(title.as_ptr(), ptr::null(), html.as_ptr(), size.0, size.1, resizable);
+                    window = webview_new(title.as_ptr(), html.as_ptr(), ContentType_Html, size.0, size.1, resizable);
                 };
             }
         }

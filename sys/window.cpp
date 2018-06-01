@@ -28,12 +28,19 @@ namespace
     }
 }
 
+/*static*/ Window* Window::Create(const std::string& title, SIZE size, bool resizable)
+{
+    auto window = new Window(title, size, resizable);
+    window->_WaitForControl();
+    return window;
+}
+
 Window::Window(
     const std::string& title,
-    const std::string& url,
     SIZE size,
     bool resizable) :
-    m_hwnd(nullptr)
+    m_hwnd(nullptr),
+    m_ready(nullptr)
 {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     if (hInstance == nullptr)
@@ -88,26 +95,36 @@ Window::Window(
     const Rect bounds = _GetBounds();
     auto op = m_process.CreateWebViewControlAsync(reinterpret_cast<int64_t>(hwnd), bounds);
 
-    op.Completed([this, url](auto op, auto status)
+    m_ready = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (m_ready == nullptr)
+    {
+        winrt::throw_last_error();
+    }
+
+    op.Completed([this](auto op, auto status)
     {
         m_control = op.GetResults();
         m_control.IsVisible(true);
 
-        Uri uri(winrt::to_hstring(url.c_str()));
-        m_control.Navigate(uri);
-        //m_control.NavigateToString(winrt::to_hstring("Hello World!"));
+        SetEvent(m_ready);
     });
 }
 
 Window::~Window()
 {
     m_process.Terminate();
+    CloseHandle(m_ready);
+}
+
+void Window::_WaitForControl() noexcept
+{
+    DWORD index = 0;
+    HANDLE handles[] = { m_ready };
+    winrt::check_hresult(CoWaitForMultipleHandles(0, INFINITE, _countof(handles), handles, &index));
 }
 
 int Window::Run() noexcept
 {
-    winrt::init_apartment(winrt::apartment_type::single_threaded);
-
     MSG msg;
     while (::GetMessage(&msg, nullptr, 0, 0))
     {
@@ -116,6 +133,19 @@ int Window::Run() noexcept
     }
 
     return (int)msg.wParam;
+}
+
+int Window::NavigateToUrl(const std::string& url)
+{
+    Uri uri(winrt::to_hstring(url.c_str()));
+    m_control.Navigate(uri);
+    return 0;
+}
+
+int Window::NavigateToString(const std::string& html)
+{
+    m_control.NavigateToString(winrt::to_hstring(html));
+    return 0;
 }
 
 /*static*/ LRESULT CALLBACK Window::s_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

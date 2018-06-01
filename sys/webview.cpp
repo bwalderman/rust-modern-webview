@@ -4,10 +4,18 @@
 
 using WebView::Window;
 
+namespace
+{
+    static bool IsValidContentType(const ContentType type)
+    {
+        return type == ContentType::Url || type == ContentType::Html;
+    }
+}
+
 void* webview_new(
     const char* const title,
-    const char* const url,
-    const char* html,
+    const char* const content,
+    const ContentType contentType,
     const int32_t width,
     const int32_t height,
     const bool resizable) noexcept
@@ -16,19 +24,27 @@ void* webview_new(
 
     Window* window = nullptr;
 
-    try
+    if (title != nullptr &&
+        content != nullptr &&
+        width >= 0 && height >= 0 &&
+        IsValidContentType(contentType))
     {
-        if (url != nullptr)
+        try
         {
-            window = new Window(title, url, { width, height }, resizable);
+            window = Window::Create(title, { width, height }, resizable);
+
+            if (contentType == ContentType::Url)
+            {
+                window->NavigateToUrl(content);
+            }
+            else if (contentType == ContentType::Html)
+            {
+                window->NavigateToString(content);
+            }
         }
-        // else if (html != nullptr)
-        // {
-        // 	window = new Window(title, html, { width, height }, resizable);
-        // }
-    }
-    catch (...)
-    {
+        catch (...)
+        {
+        }
     }
 
     return window;
