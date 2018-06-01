@@ -7,9 +7,8 @@ use std::os::raw::*;
 use std::ptr;
 
 use ffi::*;
-use widestring::WideCString;
 
-pub struct Size(i32, i32);
+pub struct Size(pub i32, pub i32);
 
 pub enum Content<S: Into<String> + Display> {
     Html(S),
@@ -25,11 +24,11 @@ impl WebView {
 
         let mut window: *mut c_void = ptr::null_mut();
         
-        let title = WideCString::from_str(&title).unwrap();
+        let title = CString::new(title).unwrap();
         
         match content {
             Content::Url(url) => {
-                let url = WideCString::from_str(url.into()).unwrap();
+                let url = CString::new(url.into()).unwrap();
                 unsafe {
                     window = webview_new(title.as_ptr(), url.as_ptr(), ptr::null(), size.0, size.1, resizable);
                 };

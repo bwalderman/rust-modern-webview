@@ -1,0 +1,7 @@
+[package]
+name = "modern-webview-sample"
+version = "0.1.0"
+authors = ["Brandon Walderman <bwalderman@outlook.com>"]
+
+[dependencies]
+modern_webview = { path = "..", version = "0.1.0" }

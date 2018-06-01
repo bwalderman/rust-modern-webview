@@ -6,9 +6,31 @@ using namespace Windows::Foundation;
 using namespace Windows::Web::UI::Interop;
 using namespace WebView;
 
+namespace
+{
+    static std::wstring WideStringFromString(const std::string& narrow)
+    {
+        std::wstring wide;
+
+        const int charCount = MultiByteToWideChar(CP_UTF8, 0, narrow.c_str(), -1, nullptr, 0);
+        if (charCount > 0)
+        {
+            std::unique_ptr<wchar_t[]> buffer(new wchar_t[charCount]);
+            if (MultiByteToWideChar(CP_UTF8, 0, narrow.c_str(), -1, buffer.get(), charCount) == 0)
+            {
+                winrt::throw_last_error();
+            }
+
+            wide = buffer.get();
+        }
+
+        return wide;
+    }
+}
+
 Window::Window(
-    const std::wstring& title,
-    const std::wstring& url,
+    const std::string& title,
+    const std::string& url,
     SIZE size,
     bool resizable) :
     m_hwnd(nullptr)
@@ -38,9 +60,11 @@ Window::Window(
         winrt::throw_last_error();
     }
 
+    const auto titleWide = WideStringFromString(title);
+
     HWND hwnd = ::CreateWindowW(
         L"WebViewControlWindow", 
-        title.c_str(),
+        titleWide.c_str(),
         resizable ? WS_OVERLAPPEDWINDOW : (WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME),
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -69,7 +93,7 @@ Window::Window(
         m_control = op.GetResults();
         m_control.IsVisible(true);
 
-        Uri uri(url.c_str());
+        Uri uri(winrt::to_hstring(url.c_str()));
         m_control.Navigate(uri);
         //m_control.NavigateToString(winrt::to_hstring("Hello World!"));
     });

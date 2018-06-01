@@ -5,8 +5,8 @@
 extern "C"
 {
     void* webview_new(
-        const wchar_t* title,
-        const wchar_t* url,
+        const char* title,
+        const char* url,
         const char* html,
         int32_t width,
         int32_t height,

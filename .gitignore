@@ -3,3 +3,5 @@
 Cargo.lock
 /sys/target/
 /sys/Cargo.lock
+/example/target/
+/example/Cargo.lock

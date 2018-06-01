@@ -5,8 +5,8 @@
 using WebView::Window;
 
 void* webview_new(
-    const wchar_t* const title,
-    const wchar_t* const url,
+    const char* const title,
+    const char* const url,
     const char* html,
     const int32_t width,
     const int32_t height,

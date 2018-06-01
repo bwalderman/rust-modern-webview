@@ -10,8 +10,8 @@ class Window final
 {
 public:
     Window(
-        const std::wstring& title,
-        const std::wstring& url,
+        const std::string& title,
+        const std::string& url,
         SIZE size,
         bool resizable);
     ~Window();
