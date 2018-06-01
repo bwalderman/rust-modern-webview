@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["Brandon Walderman <bwalderman@outlook.com>"]
 
 [dependencies]
-modern_webview = { path = "..", version = "0.1.0" }
+modern-webview = { path = "..", version = "0.1.0" }
