@@ -10,19 +10,25 @@ use ffi::*;
 
 pub struct Size(pub i32, pub i32);
 
-pub enum Content<S: Into<String> + Display> {
+pub enum Content<S: Into<String>> {
     Html(S),
     Url(S)
+}
+
+pub enum Event {
+
 }
 
 pub struct WebView {
     window: *mut c_void
 }
 
-impl WebView {
-    pub fn new<S: Into<String> + Display>(title: &str, content: Content<S>, size: Size, resizable: bool) -> Result<WebView, &'static str> {
+type Result<T> = std::result::Result<T, &'static str>;
 
-        let mut window: *mut c_void = ptr::null_mut();
+impl WebView {
+    pub(self) fn new<S: Into<String>>(title: &str, content: Content<S>, size: Size, resizable: bool) -> Result<WebView> {
+
+        let mut _window: *mut c_void = ptr::null_mut();
         
         let title = CString::new(title).unwrap();
         
@@ -30,27 +36,33 @@ impl WebView {
             Content::Url(url) => {
                 let url = CString::new(url.into()).unwrap();
                 unsafe {
-                    window = webview_new(title.as_ptr(), url.as_ptr(), ContentType_Url, size.0, size.1, resizable);
+                    _window = webview_new(title.as_ptr(), url.as_ptr(), ContentType_Url, size.0, size.1, resizable);
                 };
             },
             Content::Html(html) => {
                 let html = CString::new(html.into()).unwrap();
                 unsafe {
-                    window = webview_new(title.as_ptr(), html.as_ptr(), ContentType_Html, size.0, size.1, resizable);
+                    _window = webview_new(title.as_ptr(), html.as_ptr(), ContentType_Html, size.0, size.1, resizable);
                 };
             }
         }
 
-        if window.is_null() {
+        if _window.is_null() {
             return Err("Window not created.");
         }
 
-        Ok(WebView { window })
+        Ok(WebView { window: _window })
     }
 
-    pub fn run(&mut self) -> i32 {
+    pub(self) fn run<F>(&mut self, callback: F) -> Result<()> where F: FnOnce(&mut WebView, &Event) {
+        let mut _result: i32 = 0;
         unsafe {
-            webview_run(self.window)
+            _result = webview_run(self.window)
+        }
+        if _result == 0 {
+            Ok(())
+        } else {
+            Err("WebView did not exit successfully.")
         }
     }
 }
@@ -61,4 +73,8 @@ impl Drop for WebView {
             webview_free(self.window)
         }
     }
+}
+
+pub fn webview<S: Into<String>, F>(title: &str, content: Content<S>, size: Size, resizable: bool, callback: F) -> Result<()> where F: FnOnce(&mut WebView, &Event) {
+    WebView::new(title, content, size, resizable)?.run(callback)
 }
