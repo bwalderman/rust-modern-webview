@@ -18,7 +18,7 @@ extern "C"
         int32_t height,
         bool resizable) noexcept;
 
-    int webview_run(void* window) noexcept;
+    int webview_run(void* window, void* webview) noexcept;
 
     void webview_free(void* window) noexcept;
 }

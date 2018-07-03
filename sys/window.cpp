@@ -6,6 +6,10 @@ using namespace Windows::Foundation;
 using namespace Windows::Web::UI::Interop;
 using namespace WebView;
 
+extern "C" {
+    extern void webview_callback(void* context);
+}
+
 namespace
 {
     static std::wstring WideStringFromString(const std::string& narrow)
@@ -26,21 +30,39 @@ namespace
 
         return wide;
     }
-}
 
-/*static*/ Window* Window::Create(const std::string& title, SIZE size, bool resizable)
-{
-    auto window = new Window(title, size, resizable);
-    window->_WaitForControl();
-    return window;
+    template <typename T>
+    static T AwaitAsyncOperation(IAsyncOperation<T>& operation)
+    {
+        T result = nullptr;
+
+        HANDLE ready = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        if (ready == nullptr)
+        {
+            winrt::throw_last_error();
+        }
+
+        operation.Completed([ready, &result](auto operation, auto /*status*/)
+        {
+            result = operation.GetResults();
+            SetEvent(ready);
+        });
+
+        DWORD index = 0;
+        HANDLE handles[] = { ready };
+        winrt::check_hresult(CoWaitForMultipleHandles(0, INFINITE, _countof(handles), handles, &index));
+
+        CloseHandle(ready);
+        return result;
+    }
 }
 
 Window::Window(
     const std::string& title,
-    SIZE size,
-    bool resizable) :
+    const SIZE size,
+    const bool resizable) :
     m_hwnd(nullptr),
-    m_ready(nullptr)
+    m_owner(nullptr)
 {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     if (hInstance == nullptr)
@@ -87,44 +109,28 @@ Window::Window(
         winrt::throw_last_error();
     }
 
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
-
     m_process = WebViewControlProcess();
     
     const Rect bounds = _GetBounds();
     auto op = m_process.CreateWebViewControlAsync(reinterpret_cast<int64_t>(hwnd), bounds);
 
-    m_ready = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (m_ready == nullptr)
-    {
-        winrt::throw_last_error();
-    }
+    m_control = AwaitAsyncOperation(op);
+    m_control.IsVisible(true);
 
-    op.Completed([this](auto op, auto status)
-    {
-        m_control = op.GetResults();
-        m_control.IsVisible(true);
-
-        SetEvent(m_ready);
-    });
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
 }
 
 Window::~Window()
 {
     m_process.Terminate();
-    CloseHandle(m_ready);
 }
 
-void Window::_WaitForControl() noexcept
+int Window::Run(void* webview) noexcept
 {
-    DWORD index = 0;
-    HANDLE handles[] = { m_ready };
-    winrt::check_hresult(CoWaitForMultipleHandles(0, INFINITE, _countof(handles), handles, &index));
-}
+    m_owner = webview;
+    webview_callback(webview);
 
-int Window::Run() noexcept
-{
     MSG msg;
     while (::GetMessage(&msg, nullptr, 0, 0))
     {

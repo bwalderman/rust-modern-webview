@@ -9,15 +9,12 @@ namespace WebView
 class Window final
 {
 public:
-    static Window* Create(const std::string& title, SIZE size, bool resizable);
-
-private:
     Window(const std::string& title, SIZE size, bool resizable);
 
 public:
     ~Window();
 
-    int Run() noexcept;
+    int Run(void* webview) noexcept;
     int NavigateToUrl(const std::string& url);
     int NavigateToString(const std::string& html);
 
@@ -30,9 +27,9 @@ private:
     LRESULT _HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
 
     HWND m_hwnd;
+    void* m_owner;
     winrt::Windows::Web::UI::Interop::WebViewControlProcess m_process;
     winrt::Windows::Web::UI::Interop::WebViewControl m_control = nullptr;
-    HANDLE m_ready;
 };
 
 }

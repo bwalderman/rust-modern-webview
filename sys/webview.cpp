@@ -31,7 +31,7 @@ void* webview_new(
     {
         try
         {
-            window = Window::Create(title, { width, height }, resizable);
+            window = new Window(title, { width, height }, resizable);
 
             if (contentType == ContentType::Url)
             {
@@ -50,10 +50,10 @@ void* webview_new(
     return window;
 }
 
-int webview_run(void* window) noexcept
+int webview_run(void* window, void* webview) noexcept
 {
     auto internalWindow = reinterpret_cast<Window*>(window);
-    return internalWindow->Run();
+    return internalWindow->Run(webview);
 }
 
 void webview_free(void* window) noexcept
