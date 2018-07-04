@@ -27,7 +27,6 @@ fn main() {
     build.define("_UNICODE", None);
     build.define("UNICODE", None);
     build.file("webview.cpp");
-    build.file("window.cpp");
     build.flag_if_supported("/std:c++17");
     build.flag_if_supported("/EHsc");
 
