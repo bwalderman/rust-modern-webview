@@ -6,9 +6,28 @@ using WebView::Window;
 
 namespace
 {
-    static bool IsValidContentType(const ContentType type)
+    INIT_ONCE s_initOnce = INIT_ONCE_STATIC_INIT;
+
+    bool IsValidContentType(const ContentType type)
     {
         return type == ContentType::Url || type == ContentType::Html;
+    }
+
+    void EnsureInitialized()
+    {
+        BOOL success = InitOnceExecuteOnce(&s_initOnce, [](PINIT_ONCE, PVOID, PVOID*) -> BOOL
+        {
+            winrt::init_apartment(winrt::apartment_type::single_threaded);
+
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+            return TRUE;
+        }, nullptr /*Parameter*/, nullptr /*Context*/);
+        
+        if (!success)
+        {
+            winrt::throw_last_error();
+        }
     }
 }
 
@@ -20,8 +39,8 @@ void* webview_new(
     const int32_t height,
     const bool resizable) noexcept
 {
-    winrt::init_apartment(winrt::apartment_type::single_threaded);
-
+    EnsureInitialized();
+    
     Window* window = nullptr;
 
     if (title != nullptr &&
