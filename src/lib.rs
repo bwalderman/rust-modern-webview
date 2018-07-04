@@ -1,7 +1,7 @@
 extern crate modern_webview_sys as ffi;
 extern crate widestring;
 
-use std::ffi::CString;
+use std::ffi::{ CString, CStr };
 use std::os::raw::*;
 use ffi::*;
 
@@ -11,10 +11,11 @@ pub enum Content<S: Into<String>> {
 }
 
 pub enum Event {
-    ScriptNotify()
+    DOMContentLoaded(),
+    ScriptNotify(String)
 }
 
-type Callback<'a> = FnMut(&mut WebView, &Event) + 'a;
+type Callback<'a> = FnMut(&mut WebView, Event) + 'a;
 
 pub struct WebView {
     window: *mut c_void
@@ -28,19 +29,23 @@ struct Container<'a> {
 type Result<T> = std::result::Result<T, &'static str>;
 
 impl WebView {
+    pub fn eval_script<S: Into<String>>(&mut self, script: S) -> Result<()> {
+        
+        let script = CString::new(script.into()).unwrap();
+        let result: i32 = unsafe {
+            webview_eval_script(self.window, script.as_ptr())
+        };
 
-}
-
-impl Drop for WebView {
-    fn drop(&mut self) {
-        unsafe {
-            webview_free(self.window)
+        if result == 0 {
+            Ok(())
+        } else {
+            Err("Could not execute script")
         }
     }
 }
 
 pub fn webview<'a, S: Into<String>, F>(
-    title: &str, content: Content<S>, size: (i32, i32), resizable: bool, callback: F) -> Result<()> where F: FnMut(&mut WebView, &Event) + 'a {
+    title: &str, content: Content<S>, size: (i32, i32), resizable: bool, callback: F) -> Result<()> where F: FnMut(&mut WebView, Event) + 'a {
 
     let title = CString::new(title).unwrap();
 
@@ -65,6 +70,10 @@ pub fn webview<'a, S: Into<String>, F>(
         webview_run(window, webview_ptr as *mut c_void)
     };
 
+    unsafe {
+        webview_free(window)
+    }
+
     if result == 0 {
         Ok(())
     } else {
@@ -72,9 +81,28 @@ pub fn webview<'a, S: Into<String>, F>(
     }
 }
 
+const DOMCONTENTLOADED: u32 = 1;
+
 #[no_mangle]
-pub extern "C" fn webview_callback(webview_ptr: *mut c_void) {
-    let container = unsafe { (webview_ptr as *mut Container).as_mut().unwrap() };
-    let e = Event::ScriptNotify();
-    (container.callback)(&mut container.webview, &e);
+pub extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32) {
+    let container = unsafe {
+        (webview_ptr as *mut Container).as_mut().unwrap()
+    };
+    
+    match event {
+        DOMCONTENTLOADED => {
+            (container.callback)(&mut container.webview, Event::DOMContentLoaded());
+        },
+        _ => {} 
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn webview_script_notify_callback(webview_ptr: *mut c_void, value: *mut c_char) {
+    let container = unsafe {
+        (webview_ptr as *mut Container).as_mut().unwrap()
+    };
+
+    let value = unsafe { CStr::from_ptr(value).to_string_lossy().into_owned() };
+    (container.callback)(&mut container.webview, Event::ScriptNotify(value));
 }

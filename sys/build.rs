@@ -12,6 +12,7 @@ fn main() {
         .whitelist_function("webview_new")
         .whitelist_function("webview_run")
         .whitelist_function("webview_free")
+        .whitelist_function("webview_eval_script")
         .generate()
         .expect("Unable to generate bindings.");
 

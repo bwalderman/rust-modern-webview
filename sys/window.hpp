@@ -17,6 +17,7 @@ public:
     int Run(void* webview) noexcept;
     int NavigateToUrl(const std::string& url);
     int NavigateToString(const std::string& html);
+    void EvaluateScript(const std::string& script);
 
 private:
     static LRESULT CALLBACK s_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);

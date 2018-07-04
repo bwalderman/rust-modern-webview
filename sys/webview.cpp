@@ -61,3 +61,19 @@ void webview_free(void* window) noexcept
     auto internalWindow = reinterpret_cast<Window*>(window);
     delete internalWindow;
 }
+
+int webview_eval_script(void* window, const char* script) noexcept
+{
+    auto internalWindow = reinterpret_cast<Window*>(window);
+
+    try
+    {
+        internalWindow->EvaluateScript(script);
+    }
+    catch (...)
+    {
+        return 1; // TODO: Error codes
+    }
+    
+    return 0;
+}

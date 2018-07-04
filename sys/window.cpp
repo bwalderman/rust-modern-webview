@@ -7,11 +7,14 @@ using namespace Windows::Web::UI::Interop;
 using namespace WebView;
 
 extern "C" {
-    extern void webview_callback(void* context);
+    extern void webview_generic_callback(void* webview, uint32_t event);
+    extern void webview_script_notify_callback(void* webview, const char* value);
 }
 
 namespace
 {
+    constexpr uint32_t DOMCONTENTLOADED = 1;
+
     static std::wstring WideStringFromString(const std::string& narrow)
     {
         std::wstring wide;
@@ -129,7 +132,16 @@ Window::~Window()
 int Window::Run(void* webview) noexcept
 {
     m_owner = webview;
-    webview_callback(webview);
+
+    auto domContentLoadedToken = m_control.DOMContentLoaded([this](auto sender, auto args)
+    {
+        webview_generic_callback(m_owner, DOMCONTENTLOADED);
+    });
+
+    auto scriptNotifyToken = m_control.ScriptNotify([this](auto sender, auto args)
+    {
+        webview_script_notify_callback(m_owner, winrt::to_string(args.Value()).c_str());
+    });
 
     MSG msg;
     while (::GetMessage(&msg, nullptr, 0, 0))
@@ -137,6 +149,9 @@ int Window::Run(void* webview) noexcept
         ::TranslateMessage(&msg);
         ::DispatchMessage(&msg);
     }
+
+    m_control.DOMContentLoaded(domContentLoadedToken);
+    m_control.ScriptNotify(scriptNotifyToken);
 
     return (int)msg.wParam;
 }
@@ -152,6 +167,12 @@ int Window::NavigateToString(const std::string& html)
 {
     m_control.NavigateToString(winrt::to_hstring(html));
     return 0;
+}
+
+void Window::EvaluateScript(const std::string& script)
+{
+    // TODO: Return value to rust.
+    m_control.InvokeScriptAsync(winrt::to_hstring("eval"), { winrt::to_hstring(script) });
 }
 
 /*static*/ LRESULT CALLBACK Window::s_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
