@@ -12,6 +12,7 @@ extern "C"
 using namespace winrt;
 using namespace Windows::Foundation;
 using namespace Windows::Web::UI::Interop;
+using namespace Windows::Web::UI;
 
 // Helper functions for WebView Window class
 namespace
@@ -138,15 +139,8 @@ namespace
         {
             m_owner = webview;
 
-            auto domContentLoadedToken = m_control.DOMContentLoaded([this](auto sender, auto args)
-            {
-                webview_generic_callback(m_owner, DOMCONTENTLOADED);
-            });
-
-            auto scriptNotifyToken = m_control.ScriptNotify([this](auto sender, auto args)
-            {
-                webview_script_notify_callback(m_owner, winrt::to_string(args.Value()).c_str());
-            });
+            auto domContentLoadedRevoker = m_control.DOMContentLoaded(winrt::auto_revoke, { this, &Window::OnDOMContentLoaded });
+            auto scriptNotifyRevoker = m_control.ScriptNotify(winrt::auto_revoke, { this, &Window::OnScriptNotify });
 
             MSG msg;
             while (::GetMessage(&msg, nullptr, 0, 0))
@@ -154,9 +148,6 @@ namespace
                 ::TranslateMessage(&msg);
                 ::DispatchMessage(&msg);
             }
-
-            m_control.DOMContentLoaded(domContentLoadedToken);
-            m_control.ScriptNotify(scriptNotifyToken);
 
             return (int)msg.wParam;
         }
@@ -242,6 +233,16 @@ namespace
             }
 
             return 0;
+        }
+
+        void OnDOMContentLoaded(const IWebViewControl&, const WebViewControlDOMContentLoadedEventArgs&)
+        {
+            webview_generic_callback(m_owner, DOMCONTENTLOADED);
+        }
+
+        void OnScriptNotify(const IWebViewControl&, const WebViewControlScriptNotifyEventArgs& args)
+        {
+            webview_script_notify_callback(m_owner, winrt::to_string(args.Value()).c_str());
         }
 
         HWND m_hwnd = nullptr;
