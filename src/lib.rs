@@ -1,5 +1,4 @@
 extern crate modern_webview_sys as ffi;
-extern crate widestring;
 
 use std::ffi::{ CString, CStr };
 use std::os::raw::*;
@@ -72,7 +71,7 @@ pub fn webview<'a, S: Into<String>, F>(
 
     unsafe {
         webview_free(window)
-    }
+    };
 
     if result == 0 {
         Ok(())
@@ -83,26 +82,24 @@ pub fn webview<'a, S: Into<String>, F>(
 
 const DOMCONTENTLOADED: u32 = 1;
 
-#[no_mangle]
-pub extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32) {
+fn invoke_callback(webview_ptr: *mut c_void, event: Event) {
     let container = unsafe {
         (webview_ptr as *mut Container).as_mut().unwrap()
     };
-    
+
+    (container.callback)(&mut container.webview, event);
+}
+
+#[no_mangle]
+pub extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32) {
     match event {
-        DOMCONTENTLOADED => {
-            (container.callback)(&mut container.webview, Event::DOMContentLoaded());
-        },
+        DOMCONTENTLOADED => invoke_callback(webview_ptr, Event::DOMContentLoaded()),
         _ => {} 
     };
 }
 
 #[no_mangle]
 pub extern "C" fn webview_script_notify_callback(webview_ptr: *mut c_void, value: *mut c_char) {
-    let container = unsafe {
-        (webview_ptr as *mut Container).as_mut().unwrap()
-    };
-
     let value = unsafe { CStr::from_ptr(value).to_string_lossy().into_owned() };
-    (container.callback)(&mut container.webview, Event::ScriptNotify(value));
+    invoke_callback(webview_ptr, Event::ScriptNotify(value));
 }
