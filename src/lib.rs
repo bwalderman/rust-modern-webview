@@ -2,6 +2,7 @@ extern crate modern_webview_sys as ffi;
 
 use std::ffi::{ CString, CStr };
 use std::os::raw::*;
+use std::ptr;
 use ffi::*;
 
 pub enum Content<S: Into<String>> {
@@ -28,15 +29,23 @@ struct Container<'a> {
 type Result<T> = std::result::Result<T, &'static str>;
 
 impl WebView {
-    pub fn eval_script<S: Into<String>>(&mut self, script: S) -> Result<()> {
+    pub fn eval_script<S: Into<String>>(&mut self, script: S) -> Result<String> {
         
+        let mut ret: *mut c_char = ptr::null_mut();
+
         let script = CString::new(script.into()).unwrap();
-        let result: i32 = unsafe {
-            webview_eval_script(self.window, script.as_ptr())
+        let result: i32 = unsafe {    
+            webview_eval_script(self.window, script.as_ptr(), &mut ret)
         };
 
         if result == 0 {
-            Ok(())
+            let value = unsafe { CStr::from_ptr(ret).to_string_lossy().into_owned() };
+            
+            unsafe {
+                webview_string_free(ret)
+            };
+            
+            Ok(value)
         } else {
             Err("Could not execute script")
         }

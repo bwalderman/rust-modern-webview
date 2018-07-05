@@ -20,5 +20,6 @@ extern "C"
     void webview_free(void* window) noexcept;
 
     int webview_run(void* window, void* webview) noexcept;
-    int webview_eval_script(void* window, const char* script) noexcept;
+    int webview_eval_script(void* window, const char* script, char** value) noexcept;
+    void webview_string_free(const char* str) noexcept;
 }

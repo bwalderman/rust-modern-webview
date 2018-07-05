@@ -19,7 +19,7 @@ namespace
 {
     constexpr uint32_t DOMCONTENTLOADED = 1;
 
-    static std::wstring WideStringFromString(const std::string& narrow)
+    std::wstring WideStringFromString(const std::string& narrow)
     {
         std::wstring wide;
 
@@ -38,10 +38,18 @@ namespace
         return wide;
     }
 
+    template <typename T> T default() {
+        return nullptr;
+    }
+
+    template <> winrt::hstring default<winrt::hstring>() {
+        return winrt::hstring {};
+    } 
+
     template <typename T>
-    static T AwaitAsyncOperation(IAsyncOperation<T>& operation)
+    T AwaitAsyncOperation(IAsyncOperation<T>& operation)
     {
-        T result = nullptr;
+        T result = default<T>();
 
         HANDLE ready = CreateEvent(nullptr, FALSE, FALSE, nullptr);
         if (ready == nullptr)
@@ -57,7 +65,7 @@ namespace
 
         DWORD index = 0;
         HANDLE handles[] = { ready };
-        winrt::check_hresult(CoWaitForMultipleHandles(0, INFINITE, _countof(handles), handles, &index));
+        winrt::check_hresult(CoWaitForMultipleHandles(COWAIT_DISPATCH_WINDOW_MESSAGES | COWAIT_DISPATCH_CALLS | COWAIT_INPUTAVAILABLE, INFINITE, _countof(handles), handles, &index));
 
         CloseHandle(ready);
         return result;
@@ -165,10 +173,11 @@ namespace
             return 0;
         }
 
-        void EvaluateScript(const std::string& script)
+        std::string EvaluateScript(const std::string& script)
         {
-            // TODO: Return value to rust.
-            m_control.InvokeScriptAsync(winrt::to_hstring("eval"), { winrt::to_hstring(script) });
+            auto op = (m_control.InvokeScriptAsync(winrt::to_hstring("eval"), { winrt::to_hstring(script) }));
+            auto value = AwaitAsyncOperation(op);
+            return winrt::to_string(value);
         }
 
     private:
@@ -332,18 +341,32 @@ void webview_free(void* window) noexcept
     delete internalWindow;
 }
 
-int webview_eval_script(void* window, const char* script) noexcept
+int webview_eval_script(void* window, const char* script, char** value) noexcept
 {
     auto internalWindow = reinterpret_cast<Window*>(window);
 
+    *value = nullptr;
+
     try
     {
-        internalWindow->EvaluateScript(script);
+        auto ret = internalWindow->EvaluateScript(script);
+
+        *value = new char[ret.length() + 1];
+        ret.copy(*value, ret.length(), 0);
+        (*value)[ret.length()] = '\0';
     }
     catch (...)
     {
         return 1; // TODO: Error codes
     }
-    
+
     return 0;
+}
+
+void webview_string_free(const char* str) noexcept
+{
+    if (str != nullptr)
+    {
+        delete [] str;
+    }
 }
