@@ -11,11 +11,11 @@ fn main() {
                 let value = webview.eval_script("document.body.innerHTML += 'Host called eval_script.'; 'ping'").unwrap();
                 println!("Returned from eval_script: {}", value);
                 
-                webview.eval_script("window.external.notify('pong')");
+                webview.eval_script("window.external.notify('pong')").unwrap();
             },
             Event::ScriptNotify(response) => {
                 println!("Sent via script notify: {}", response);
             }
         }
-    });
+    }).unwrap();
 }

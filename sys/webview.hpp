@@ -10,16 +10,24 @@ extern "C"
         Html = 2
     };
 
-    void* webview_new(
+    enum class WebViewResult : uint32_t
+    {
+        Success = 0,
+        InvalidArgument = 1,
+        InternalError = 2
+    };
+
+    WebViewResult webview_new(
         const char* title,
         const char* const content,
         const ContentType contentType,
         int32_t width,
         int32_t height,
-        bool resizable) noexcept;
+        bool resizable,
+        void** window) noexcept;
     void webview_free(void* window) noexcept;
 
-    int webview_run(void* window, void* webview) noexcept;
-    int webview_eval_script(void* window, const char* script, char** value) noexcept;
+    WebViewResult webview_run(void* window, void* webview) noexcept;
+    WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept;
     void webview_string_free(const char* str) noexcept;
 }

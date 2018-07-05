@@ -49,25 +49,26 @@ namespace
     template <typename T>
     T AwaitAsyncOperation(IAsyncOperation<T>& operation)
     {
+        using unique_handle = std::unique_ptr<std::remove_pointer<HANDLE>::type, decltype(&::CloseHandle)>;
+
         T result = default<T>();
 
-        HANDLE ready = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        unique_handle ready(CreateEvent(nullptr, FALSE, FALSE, nullptr), &::CloseHandle);
         if (ready == nullptr)
         {
             winrt::throw_last_error();
         }
 
-        operation.Completed([ready, &result](auto operation, auto /*status*/)
+        operation.Completed([ready = ready.get(), &result](auto operation, auto /*status*/)
         {
             result = operation.GetResults();
             SetEvent(ready);
         });
 
         DWORD index = 0;
-        HANDLE handles[] = { ready };
+        HANDLE handles[] = { ready.get() };
         winrt::check_hresult(CoWaitForMultipleHandles(COWAIT_DISPATCH_WINDOW_MESSAGES | COWAIT_DISPATCH_CALLS | COWAIT_INPUTAVAILABLE, INFINITE, _countof(handles), handles, &index));
 
-        CloseHandle(ready);
         return result;
     }
 }
@@ -160,17 +161,15 @@ namespace
             return (int)msg.wParam;
         }
 
-        int NavigateToUrl(const std::string& url)
+        void NavigateToUrl(const std::string& url)
         {
             Uri uri(winrt::to_hstring(url.c_str()));
             m_control.Navigate(uri);
-            return 0;
         }
 
-        int NavigateToString(const std::string& html)
+        void NavigateToString(const std::string& html)
         {
             m_control.NavigateToString(winrt::to_hstring(html));
-            return 0;
         }
 
         std::string EvaluateScript(const std::string& script)
@@ -287,52 +286,64 @@ namespace
             winrt::throw_last_error();
         }
     }
+
+    WebViewResult MapException(void* window, const std::function<void(Window&)>& func) noexcept
+    {
+        try
+        {
+            Window& internalWindow = *reinterpret_cast<Window*>(window);
+            func(internalWindow);
+        }
+        catch (...)
+        {
+            return WebViewResult::InternalError;
+        }
+
+        return WebViewResult::Success;
+    }
 }
 
 // Public API
 
-void* webview_new(
+WebViewResult webview_new(
     const char* const title,
     const char* const content,
     const ContentType contentType,
     const int32_t width,
     const int32_t height,
-    const bool resizable) noexcept
+    const bool resizable,
+    void** window) noexcept
 {
-    EnsureInitialized();
-    
-    Window* window = nullptr;
+    *window = nullptr;
 
-    if (title != nullptr &&
-        content != nullptr &&
-        width >= 0 && height >= 0 &&
-        IsValidContentType(contentType))
+    if (title == nullptr || content == nullptr || width <= 0 || height <= 0 || !IsValidContentType(contentType) || window == nullptr)
     {
-        try
-        {
-            window = new Window(title, { width, height }, resizable);
-
-            if (contentType == ContentType::Url)
-            {
-                window->NavigateToUrl(content);
-            }
-            else if (contentType == ContentType::Html)
-            {
-                window->NavigateToString(content);
-            }
-        }
-        catch (...)
-        {
-        }
+        return WebViewResult::InvalidArgument;
     }
 
-    return window;
-}
+    try
+    {
+        EnsureInitialized();
 
-int webview_run(void* window, void* webview) noexcept
-{
-    auto internalWindow = reinterpret_cast<Window*>(window);
-    return internalWindow->Run(webview);
+        std::unique_ptr<Window> localWindow(new Window(title, { width, height }, resizable));
+
+        if (contentType == ContentType::Url)
+        {
+            localWindow->NavigateToUrl(content);
+        }
+        else if (contentType == ContentType::Html)
+        {
+            localWindow->NavigateToString(content);
+        }
+
+        *window = localWindow.release();
+    }
+    catch (...)
+    {
+        return WebViewResult::InternalError;
+    }
+    
+    return WebViewResult::Success;
 }
 
 void webview_free(void* window) noexcept
@@ -341,26 +352,34 @@ void webview_free(void* window) noexcept
     delete internalWindow;
 }
 
-int webview_eval_script(void* window, const char* script, char** value) noexcept
+WebViewResult webview_run(void* window, void* webview) noexcept
 {
-    auto internalWindow = reinterpret_cast<Window*>(window);
-
-    *value = nullptr;
-
-    try
+    if (window == nullptr || webview == nullptr)
     {
-        auto ret = internalWindow->EvaluateScript(script);
+        return WebViewResult::InvalidArgument;
+    }
 
+    return MapException(window, [webview](Window& window)
+    {
+        window.Run(webview);
+    });
+}
+
+WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept
+{
+    if (window == nullptr || script == nullptr || value == nullptr)
+    {
+        return WebViewResult::InvalidArgument;
+    }
+
+    return MapException(window, [script, value](Window& window)
+    {
+        *value = nullptr;
+        auto ret = window.EvaluateScript(script);
         *value = new char[ret.length() + 1];
         ret.copy(*value, ret.length(), 0);
         (*value)[ret.length()] = '\0';
-    }
-    catch (...)
-    {
-        return 1; // TODO: Error codes
-    }
-
-    return 0;
+    });
 }
 
 void webview_string_free(const char* str) noexcept
