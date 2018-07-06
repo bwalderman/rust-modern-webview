@@ -60,11 +60,11 @@ struct Container<'a> {
 }
 
 impl WebView {
-    pub fn eval_script<S: Into<String>>(&mut self, script: S) -> Result<String> {
+    pub fn eval_script(&mut self, script: &str) -> Result<String> {
         
         let mut ret: *mut c_char = ptr::null_mut();
 
-        let script = CString::new(script.into())?;
+        let script = CString::new(script)?;
         let result: u32 = unsafe {    
             webview_eval_script(self.window, script.as_ptr(), &mut ret)
         };
@@ -78,6 +78,16 @@ impl WebView {
         };
         
         Ok(value)
+    }
+
+    pub fn inject_css(&mut self, css: &str) -> Result<()> {
+
+        let css = CString::new(css)?;
+        let result: u32 = unsafe {
+            webview_inject_css(self.window, css.as_ptr())
+        };
+
+        map_result((), result)
     }
 }
 

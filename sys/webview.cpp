@@ -179,6 +179,27 @@ namespace
             return winrt::to_string(value);
         }
 
+        void InjectCss(const std::string& css)
+        {
+            if (!m_injectCssFunctionInitialized)
+            {
+                static constexpr char s_injectCss[] =
+                    "window.__webview_injectCss = function __webview_injectCss(css) {"
+                    "    const style = document.createElement('style');"
+                    "    style.type = 'text/css';"
+                    "    style.innerHTML = css;"
+                    "    document.head.appendChild(style);"
+                    "};";
+
+                auto op = (m_control.InvokeScriptAsync(winrt::to_hstring("eval"), { winrt::to_hstring(s_injectCss) }));
+                AwaitAsyncOperation(op);
+                m_injectCssFunctionInitialized = true;
+            }
+            
+            auto op = (m_control.InvokeScriptAsync(winrt::to_hstring("__webview_injectCss"), { winrt::to_hstring(css) }));
+            AwaitAsyncOperation(op);
+        }
+
     private:
         static LRESULT CALLBACK s_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
@@ -257,6 +278,7 @@ namespace
         void* m_owner = nullptr;
         winrt::Windows::Web::UI::Interop::WebViewControlProcess m_process;
         winrt::Windows::Web::UI::Interop::WebViewControl m_control = nullptr;
+        bool m_injectCssFunctionInitialized = false;
     };
 }
 
@@ -352,6 +374,14 @@ void webview_free(void* window) noexcept
     delete internalWindow;
 }
 
+void webview_string_free(const char* str) noexcept
+{
+    if (str != nullptr)
+    {
+        delete [] str;
+    }
+}
+
 WebViewResult webview_run(void* window, void* webview) noexcept
 {
     if (window == nullptr || webview == nullptr)
@@ -382,10 +412,15 @@ WebViewResult webview_eval_script(void* window, const char* script, char** value
     });
 }
 
-void webview_string_free(const char* str) noexcept
+WebViewResult webview_inject_css(void* window, const char* css) noexcept
 {
-    if (str != nullptr)
+    if (window == nullptr || css == nullptr)
     {
-        delete [] str;
+        return WebViewResult::InvalidArgument;
     }
+
+    return MapException(window, [css](Window& window)
+    {
+        window.InjectCss(css);
+    });
 }

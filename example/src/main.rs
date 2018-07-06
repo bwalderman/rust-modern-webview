@@ -8,6 +8,8 @@ fn main() {
         match event {
             Event::DOMContentLoaded() => {
                 
+                webview.inject_css("body { color: #00f; }").unwrap();
+
                 let value = webview.eval_script("document.body.innerHTML += 'Host called eval_script.'; 'ping'").unwrap();
                 println!("Returned from eval_script: {}", value);
                 

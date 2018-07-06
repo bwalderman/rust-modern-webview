@@ -26,8 +26,9 @@ extern "C"
         bool resizable,
         void** window) noexcept;
     void webview_free(void* window) noexcept;
+    void webview_string_free(const char* str) noexcept;
 
     WebViewResult webview_run(void* window, void* webview) noexcept;
     WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept;
-    void webview_string_free(const char* str) noexcept;
+    WebViewResult webview_inject_css(void* window, const char* css) noexcept;
 }
