@@ -16,6 +16,8 @@ pub enum Event {
     ScriptNotify(String)
 }
 
+use Error::*;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidArgument(),
@@ -25,16 +27,16 @@ pub enum Error {
 
 impl From<std::ffi::NulError> for Error {
     fn from (err: std::ffi::NulError) -> Error {
-        Error::InternalError()
+        InternalError()
     }
 }
 
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {
-            Error::InvalidArgument() => "Invalid argument.",
-            Error::InternalError() => "An internal error occurred.",
-            Error::UnknownError() => "An unknown error occurred."
+            InvalidArgument() => "Invalid argument.",
+            InternalError() => "An internal error occurred.",
+            UnknownError() => "An unknown error occurred."
         }
     }
 }
@@ -94,9 +96,9 @@ impl WebView {
 fn map_result<T>(value: T, result: u32) -> Result<T> {
     match result {
         WebViewResult_Success => Ok(value),
-        WebViewResult_InvalidArgument => Err(Error::InvalidArgument()),
-        WebViewResult_InternalError => Err(Error::InternalError()),
-        _ => Err(Error::UnknownError())
+        WebViewResult_InvalidArgument => Err(InvalidArgument()),
+        WebViewResult_InternalError => Err(InternalError()),
+        _ => Err(UnknownError())
     }
 }
 
