@@ -14,13 +14,12 @@ extern "C"
     {
         Success = 0,
         InvalidArgument = 1,
-        InternalError = 2
+        InternalError = 2,
+        NotFound = 3
     };
 
     WebViewResult webview_new(
         const char* title,
-        const char* const content,
-        const ContentType contentType,
         int32_t width,
         int32_t height,
         bool resizable,
@@ -28,7 +27,8 @@ extern "C"
     void webview_free(void* window) noexcept;
     void webview_string_free(const char* str) noexcept;
 
-    WebViewResult webview_run(void* window, void* webview) noexcept;
+    WebViewResult webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept;
+    WebViewResult webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept;
     WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept;
     WebViewResult webview_inject_css(void* window, const char* css) noexcept;
 }

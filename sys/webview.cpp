@@ -2,17 +2,54 @@
 #include "webview.hpp"
 #include <string>
 #include <winrt/Windows.Web.UI.Interop.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.Security.Cryptography.h>
 
 extern "C"
 {
     extern void webview_generic_callback(void* webview, uint32_t event);
     extern void webview_script_notify_callback(void* webview, const char* value);
+    extern WebViewResult webview_get_content(void* webview, const char* path, const uint8_t** content, size_t* length);
 }
 
 using namespace winrt;
 using namespace Windows::Foundation;
+using namespace Windows::Storage::Streams;
+using namespace Windows::Security::Cryptography;
 using namespace Windows::Web::UI::Interop;
 using namespace Windows::Web::UI;
+using namespace Windows::Web;
+
+// UriToStreamResolver class
+namespace
+{
+    class UriToStreamResolver : public winrt::implements<UriToStreamResolver, IUriToStreamResolver>
+    {
+    public:
+        UriToStreamResolver(void* webview) : m_webview(webview)
+        {
+        }
+
+        IAsyncOperation<IInputStream> UriToStreamAsync(Uri uri) const
+        {
+            size_t length = 0;
+            const uint8_t* content = nullptr;
+            WebViewResult result = webview_get_content(m_webview, winrt::to_string(uri.Path()).c_str(), &content, &length);
+            if (result != WebViewResult::Success)
+            {
+                throw_hresult(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+            }
+
+            auto buffer = CryptographicBuffer::CreateFromByteArray(winrt::array_view<const uint8_t>(content, content + length - 1));
+            auto stream = InMemoryRandomAccessStream();
+            co_await stream.WriteAsync(buffer);
+            co_return stream.GetInputStreamAt(0);
+        }
+
+    private:
+        void* const m_webview;
+    };
+}
 
 // Helper functions for WebView Window class
 namespace
@@ -132,6 +169,7 @@ namespace
             auto op = m_process.CreateWebViewControlAsync(reinterpret_cast<int64_t>(hwnd), bounds);
 
             m_control = AwaitAsyncOperation(op);
+            m_control.Settings().IsScriptNotifyAllowed(true);
             m_control.IsVisible(true);
 
             ShowWindow(hwnd, SW_SHOW);
@@ -144,21 +182,31 @@ namespace
             m_process.Terminate();
         }
 
-        int Run(void* webview) noexcept
+        int Run(void* webview, const std::string& content, const ContentType contentType)
         {
             m_owner = webview;
 
-            auto domContentLoadedRevoker = m_control.DOMContentLoaded(winrt::auto_revoke, { this, &Window::OnDOMContentLoaded });
-            auto scriptNotifyRevoker = m_control.ScriptNotify(winrt::auto_revoke, { this, &Window::OnScriptNotify });
-
-            MSG msg;
-            while (::GetMessage(&msg, nullptr, 0, 0))
+            if (contentType == ContentType::Url)
             {
-                ::TranslateMessage(&msg);
-                ::DispatchMessage(&msg);
+                NavigateToUrl(content);
+            }
+            else if (contentType == ContentType::Html)
+            {
+                NavigateToString(content);
             }
 
-            return (int)msg.wParam;
+            return _RunInternal();
+        }
+
+        int RunWithStreamResolver(void* webview, const std::string& path)
+        {
+            m_owner = webview;
+
+            auto source = m_control.BuildLocalStreamUri(winrt::to_hstring("WebView"), winrt::to_hstring(path));
+            auto resolver = winrt::make_self<UriToStreamResolver>(webview);
+            m_control.NavigateToLocalStreamUri(source, resolver.as<IUriToStreamResolver>());
+
+            return _RunInternal();
         }
 
         void NavigateToUrl(const std::string& url)
@@ -264,6 +312,21 @@ namespace
             return 0;
         }
 
+        int _RunInternal()
+        {
+            auto domContentLoadedRevoker = m_control.DOMContentLoaded(winrt::auto_revoke, { this, &Window::OnDOMContentLoaded });
+            auto scriptNotifyRevoker = m_control.ScriptNotify(winrt::auto_revoke, { this, &Window::OnScriptNotify });
+
+            MSG msg;
+            while (::GetMessage(&msg, nullptr, 0, 0))
+            {
+                ::TranslateMessage(&msg);
+                ::DispatchMessage(&msg);
+            }
+
+            return (int)msg.wParam;
+        }
+
         void OnDOMContentLoaded(const IWebViewControl&, const WebViewControlDOMContentLoadedEventArgs&)
         {
             webview_generic_callback(m_owner, DOMCONTENTLOADED);
@@ -329,8 +392,6 @@ namespace
 
 WebViewResult webview_new(
     const char* const title,
-    const char* const content,
-    const ContentType contentType,
     const int32_t width,
     const int32_t height,
     const bool resizable,
@@ -338,7 +399,7 @@ WebViewResult webview_new(
 {
     *window = nullptr;
 
-    if (title == nullptr || content == nullptr || width <= 0 || height <= 0 || !IsValidContentType(contentType) || window == nullptr)
+    if (title == nullptr || width <= 0 || height <= 0 || window == nullptr)
     {
         return WebViewResult::InvalidArgument;
     }
@@ -346,18 +407,7 @@ WebViewResult webview_new(
     try
     {
         EnsureInitialized();
-
         std::unique_ptr<Window> localWindow(new Window(title, { width, height }, resizable));
-
-        if (contentType == ContentType::Url)
-        {
-            localWindow->NavigateToUrl(content);
-        }
-        else if (contentType == ContentType::Html)
-        {
-            localWindow->NavigateToString(content);
-        }
-
         *window = localWindow.release();
     }
     catch (...)
@@ -382,16 +432,29 @@ void webview_string_free(const char* str) noexcept
     }
 }
 
-WebViewResult webview_run(void* window, void* webview) noexcept
+WebViewResult webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept
 {
-    if (window == nullptr || webview == nullptr)
+    if (window == nullptr || webview == nullptr || content == nullptr || !IsValidContentType(contentType))
     {
         return WebViewResult::InvalidArgument;
     }
 
-    return MapException(window, [webview](Window& window)
+    return MapException(window, [webview, content, contentType](Window& window)
     {
-        window.Run(webview);
+        window.Run(webview, content, contentType);
+    });
+}
+
+WebViewResult webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept
+{
+    if (window == nullptr || webview == nullptr || source == nullptr)
+    {
+        return WebViewResult::InvalidArgument;
+    }
+
+    return MapException(window, [webview, source](Window& window)
+    {
+        window.RunWithStreamResolver(webview, source);
     });
 }
 

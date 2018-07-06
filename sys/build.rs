@@ -12,6 +12,7 @@ fn main() {
         .whitelist_type("WebViewResult")
         .whitelist_function("webview_new")
         .whitelist_function("webview_run")
+        .whitelist_function("webview_run_with_streamresolver")
         .whitelist_function("webview_free")
         .whitelist_function("webview_string_free")
         .whitelist_function("webview_eval_script")
@@ -32,6 +33,7 @@ fn main() {
     build.file("webview.cpp");
     build.flag_if_supported("/std:c++17");
     build.flag_if_supported("/EHsc");
+    build.flag_if_supported("/await");
 
     for &lib in &[
         "user32",
