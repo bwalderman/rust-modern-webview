@@ -1,12 +1,14 @@
 extern crate modern_webview;
 
 use modern_webview::*;
+use modern_webview::Event::*;
+use modern_webview::Content::*;
 
 fn main() {
 
-    webview("Sample WebView Project", Content::Html("<h1>Hello World!</h1>"), (1280, 800), true, |webview, event| {
+    webview("Sample WebView Project", Html("<h1>Hello World!</h1>"), (1280, 800), true, |webview, event| {
         match event {
-            Event::DOMContentLoaded() => {
+            DOMContentLoaded() => {
                 
                 webview.inject_css("body { color: #00f; }").unwrap();
 
@@ -15,7 +17,7 @@ fn main() {
                 
                 webview.eval_script("window.external.notify('pong')").unwrap();
             },
-            Event::ScriptNotify(response) => {
+            ScriptNotify(response) => {
                 println!("Sent via script notify: {}", response);
             }
         }
