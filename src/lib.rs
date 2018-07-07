@@ -193,29 +193,27 @@ pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c
         *length = 0;
     };
 
-    match container.webview.dir {
-        Some(dir) => {
-            let source = unsafe { CStr::from_ptr(source).to_str().unwrap() };
-            
-            let path = Path::new(source);
-            let path = if path.starts_with("/") {
-                path.strip_prefix("/").unwrap()
-            } else {
-                path
+    if let Some(ref dir) = container.webview.dir {
+        let source = unsafe { CStr::from_ptr(source).to_str().unwrap() };
+        
+        let path = Path::new(source);
+        let path = if path.starts_with("/") {
+            path.strip_prefix("/").unwrap()
+        } else {
+            path
+        };
+        
+        if dir.contains(path) {
+            let file = dir.get_file(path.to_str().unwrap()).unwrap();
+            let body = file.contents();
+            unsafe {
+                *content = body.as_ptr();
+                *length = body.len();
             };
             
-            if dir.contains(path) {
-                let file = dir.get_file(path.to_str().unwrap()).unwrap();
-                let body = file.contents();
-                unsafe {
-                    *content = body.as_ptr();
-                    *length = body.len();
-                };
-                true
-            } else {
-                false
-            }   
+            return true
         }
-        None => false
     }
+
+    false
 }

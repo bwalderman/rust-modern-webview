@@ -9,7 +9,7 @@ use modern_webview::Content::*;
 
 use include_dir::Dir;
 
-static HTML_DIR: Dir = include_dir!("./html");
+static HTML_DIR: Dir = include_dir!("examples/html");
 static CSS: &'static str = ".script-message { color: #36ab00; }";
 
 fn main() {
