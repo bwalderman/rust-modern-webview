@@ -10,21 +10,29 @@ use ffi::*;
 
 use include_dir::Dir;
 
+/// Types of content a new webview can navigate to.
 pub enum Content<'a, S: Into<String>> {
-    Html(S),
-    Url(S),
+    /// Navigate to an HTML source string.
+    Html(S), 
+    /// Navigate to an http or https URL such as a local or internet server.
+    Url(S), 
+    /// Navigate to local content embedded within the binary.
     Dir(Dir<'a>, S)
 }
 
+/// Async notifications from the WinRT WebViewControl.
 pub enum Event {
+    /// The DOMContentLoaded event was fired on the page.
     DOMContentLoaded(),
+    /// Script on the page called window.external.notify.
     ScriptNotify(String)
 }
 
+/// Errors reported the library.
 #[derive(Debug)]
 pub enum Error {
     Null(std::ffi::NulError),
-    Runtime { code: i32, message: String }
+    Runtime(i32, String)
 }
 
 impl From<std::ffi::NulError> for Error {
@@ -37,7 +45,7 @@ impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::Null(ref err) => err.description(),
-            Error::Runtime { ref code, ref message } => message.as_str()
+            Error::Runtime(_, ref message) => message.as_str()
         }
     }
 }
@@ -46,8 +54,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::Null(ref err) => write!(f, "Null error: {}", err),
-            Error::Runtime { ref code, ref message } => write!(f, "Windows Runtime error 0x{:08x}: \"{}\"", code, message)
-        }       
+            Error::Runtime(code, ref message) => write!(f, "Windows Runtime error 0x{:08x}: \"{}\"", code, message)
+        }
     }
 }
 
@@ -55,6 +63,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 type Callback<'a> = FnMut(&mut WebView, Event) + 'a;
 
+/// This struct represents the web view control and includes methods and properties for manipulating and inspecting the HTML content.
 pub struct WebView<'a> {
     window: *mut c_void,
     dir: Option<include_dir::Dir<'a>>
@@ -66,6 +75,8 @@ struct Container<'a> {
 }
 
 impl<'a> WebView<'a> {
+    /// Execute JavaScript on the top-level page. This function blocks until script execution is complete.
+    /// The JavaScript can return a string value to Rust.
     pub fn eval_script(&mut self, script: &str) -> Result<String> {
 
         let script = CString::new(script)?;
@@ -85,6 +96,7 @@ impl<'a> WebView<'a> {
         Ok(value)
     }
 
+    /// Apply CSS styles to the top-level page.
     pub fn inject_css(&mut self, css: &str) -> Result<()> {
 
         let css = CString::new(css)?;
@@ -106,11 +118,16 @@ fn ffi_result<T>(result: (T, i32)) -> Result<T> {
             let message = unsafe { CStr::from_ptr(msg).to_string_lossy().into_owned() };
             unsafe { webview_string_free(msg) };
 
-            Err(Error::Runtime { code, message })
+            Err(Error::Runtime(code, message))
         }
     }
 }
 
+/// Create a new Window with a WebViewControl. The title and size can be customized. The content parameter indicates the
+/// initial content to navigate to. This can be a simple HTML string, a URL, or a directory of files embedded in the binary
+/// using include_dir. The provided callback will be called when events such as DOMContentLoaded, or a script notification
+/// occur. See the Event enum for a full list of available events. The webview functions blocks until the WebViewControl
+/// window is closed.
 pub fn webview<'a, S: Into<String>, F>(
     title: &str, content: Content<S>, size: (i32, i32), resizable: bool, callback: F) -> Result<()> where F: FnMut(&mut WebView, Event) + 'a {
 
@@ -169,7 +186,7 @@ fn invoke_callback(webview_ptr: *mut c_void, event: Event) {
 }
 
 #[no_mangle]
-pub extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32) {
+extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32) {
     match event {
         DOMCONTENTLOADED => invoke_callback(webview_ptr, Event::DOMContentLoaded()),
         _ => {} 
@@ -177,13 +194,13 @@ pub extern "C" fn webview_generic_callback(webview_ptr: *mut c_void, event: u32)
 }
 
 #[no_mangle]
-pub extern "C" fn webview_script_notify_callback(webview_ptr: *mut c_void, value: *mut c_char) {
+extern "C" fn webview_script_notify_callback(webview_ptr: *mut c_void, value: *mut c_char) {
     let value = unsafe { CStr::from_ptr(value).to_string_lossy().into_owned() };
     invoke_callback(webview_ptr, Event::ScriptNotify(value));
 }
 
 #[no_mangle]
-pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c_char, content: *mut *const u8, length: *mut usize) -> bool {
+extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c_char, content: *mut *const u8, length: *mut usize) -> bool {
     let container = unsafe {
         (webview_ptr as *mut Container).as_mut().unwrap()
     };
