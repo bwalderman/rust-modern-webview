@@ -21,35 +21,33 @@ pub enum Event {
     ScriptNotify(String)
 }
 
-use Error::*;
-
 #[derive(Debug)]
 pub enum Error {
-    InvalidArgument(),
-    InternalError(),
-    UnknownError()
+    Null(std::ffi::NulError),
+    Runtime { code: i32, message: String }
 }
 
 impl From<std::ffi::NulError> for Error {
-    fn from (_: std::ffi::NulError) -> Error {
-        InternalError()
+    fn from (err: std::ffi::NulError) -> Error {
+        Error::Null(err)
     }
 }
 
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {
-            InvalidArgument() => "Invalid argument.",
-            InternalError() => "An internal error occurred.",
-            UnknownError() => "An unknown error occurred."
+            Error::Null(ref err) => err.description(),
+            Error::Runtime { ref code, ref message } => message.as_str()
         }
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-        write!(f, "{}", self.description())
+        match *self {
+            Error::Null(ref err) => write!(f, "Null error: {}", err),
+            Error::Runtime { ref code, ref message } => write!(f, "Windows Runtime error 0x{:08x}: \"{}\"", code, message)
+        }       
     }
 }
 
@@ -97,13 +95,18 @@ impl<'a> WebView<'a> {
     }
 }
 
-fn ffi_result<T>(result: (T, u32)) -> Result<T> {
+fn ffi_result<T>(result: (T, i32)) -> Result<T> {
     match result {
-        (value, WebViewResult_Success) => Ok(value),
-        (_, err) => match err {
-            WebViewResult_InvalidArgument => Err(InvalidArgument()),
-            WebViewResult_InternalError => Err(InternalError()),
-            _ => Err(UnknownError())
+        (value, 0) => Ok(value),
+        (_, code) => {
+
+            let mut msg: *mut c_char = ptr::null_mut();
+            unsafe { webview_get_error_message(&mut msg); };
+
+            let message = unsafe { CStr::from_ptr(msg).to_string_lossy().into_owned() };
+            unsafe { webview_string_free(msg) };
+
+            Err(Error::Runtime { code, message })
         }
     }
 }
@@ -180,7 +183,7 @@ pub extern "C" fn webview_script_notify_callback(webview_ptr: *mut c_void, value
 }
 
 #[no_mangle]
-pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c_char, content: *mut *const u8, length: *mut usize) -> u32 {
+pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c_char, content: *mut *const u8, length: *mut usize) -> bool {
     let container = unsafe {
         (webview_ptr as *mut Container).as_mut().unwrap()
     };
@@ -208,11 +211,11 @@ pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c
                     *content = body.as_ptr();
                     *length = body.len();
                 };
-                WebViewResult_Success
+                true
             } else {
-                WebViewResult_NotFound
+                false
             }   
         }
-        None => WebViewResult_NotFound
+        None => false
     }
 }

@@ -9,7 +9,7 @@ extern "C"
 {
     extern void webview_generic_callback(void* webview, uint32_t event);
     extern void webview_script_notify_callback(void* webview, const char* value);
-    extern WebViewResult webview_get_content(void* webview, const char* path, const uint8_t** content, size_t* length);
+    extern bool webview_get_content(void* webview, const char* path, const uint8_t** content, size_t* length);
 }
 
 using namespace winrt;
@@ -34,8 +34,8 @@ namespace
         {
             size_t length = 0;
             const uint8_t* content = nullptr;
-            WebViewResult result = webview_get_content(m_webview, winrt::to_string(uri.Path()).c_str(), &content, &length);
-            if (result != WebViewResult::Success)
+            bool result = webview_get_content(m_webview, winrt::to_string(uri.Path()).c_str(), &content, &length);
+            if (!result)
             {
                 throw_hresult(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
             }
@@ -75,38 +75,22 @@ namespace
         return wide;
     }
 
-    template <typename T> T default() {
-        return nullptr;
-    }
-
-    template <> winrt::hstring default<winrt::hstring>() {
-        return winrt::hstring {};
-    } 
-
     template <typename T>
     T AwaitAsyncOperation(IAsyncOperation<T>& operation)
     {
-        using unique_handle = std::unique_ptr<std::remove_pointer<HANDLE>::type, decltype(&::CloseHandle)>;
+        winrt::handle ready(CreateEvent(nullptr, FALSE, FALSE, nullptr));
+        winrt::check_bool(bool{ready});
 
-        T result = default<T>();
-
-        unique_handle ready(CreateEvent(nullptr, FALSE, FALSE, nullptr), &::CloseHandle);
-        if (ready == nullptr)
+        operation.Completed([ready = ready.get()](auto operation, auto status)
         {
-            winrt::throw_last_error();
-        }
-
-        operation.Completed([ready = ready.get(), &result](auto operation, auto /*status*/)
-        {
-            result = operation.GetResults();
-            SetEvent(ready);
+            winrt::check_bool(::SetEvent(ready));
         });
 
         DWORD index = 0;
         HANDLE handles[] = { ready.get() };
         winrt::check_hresult(CoWaitForMultipleHandles(COWAIT_DISPATCH_WINDOW_MESSAGES | COWAIT_DISPATCH_CALLS | COWAIT_INPUTAVAILABLE, INFINITE, _countof(handles), handles, &index));
 
-        return result;
+        return operation.GetResults();
     }
 }
 
@@ -118,11 +102,7 @@ namespace
     public:
         Window(const std::string& title, SIZE size, bool resizable)
         {
-            HINSTANCE hInstance = GetModuleHandle(nullptr);
-            if (hInstance == nullptr)
-            {
-                winrt::throw_last_error();
-            }
+            HINSTANCE hInstance = winrt::check_pointer(GetModuleHandle(nullptr));
 
             WNDCLASSEXW wcex;
             wcex.cbSize = sizeof(WNDCLASSEX);
@@ -138,14 +118,11 @@ namespace
             wcex.lpszClassName = L"WebViewControlWindow";
             wcex.hIconSm = nullptr;
 
-            if (::RegisterClassExW(&wcex) == 0)
-            {
-                winrt::throw_last_error();
-            }
+            winrt::check_bool(::RegisterClassExW(&wcex));
 
             const auto titleWide = WideStringFromString(title);
 
-            HWND hwnd = ::CreateWindowW(
+            HWND hwnd = winrt::check_pointer(::CreateWindowW(
                 L"WebViewControlWindow", 
                 titleWide.c_str(),
                 resizable ? WS_OVERLAPPEDWINDOW : (WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME),
@@ -156,12 +133,7 @@ namespace
                 nullptr,
                 nullptr,
                 hInstance,
-                reinterpret_cast<LPVOID>(this));
-
-            if (hwnd == nullptr)
-            {
-                winrt::throw_last_error();
-            }
+                reinterpret_cast<LPVOID>(this)));
 
             m_process = WebViewControlProcess();
             
@@ -349,6 +321,7 @@ namespace
 namespace
 {
     INIT_ONCE s_initOnce = INIT_ONCE_STATIC_INIT;
+    static thread_local std::optional<winrt::hresult_error> s_error;
 
     bool IsValidContentType(const ContentType type)
     {
@@ -357,65 +330,78 @@ namespace
 
     void EnsureInitialized()
     {
-        BOOL success = InitOnceExecuteOnce(&s_initOnce, [](PINIT_ONCE, PVOID, PVOID*) -> BOOL
+        winrt::check_bool(InitOnceExecuteOnce(&s_initOnce, [](PINIT_ONCE, PVOID, PVOID*) -> BOOL
         {
             winrt::init_apartment(winrt::apartment_type::single_threaded);
 
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
             return TRUE;
-        }, nullptr /*Parameter*/, nullptr /*Context*/);
-        
-        if (!success)
-        {
-            winrt::throw_last_error();
-        }
+        }, nullptr /*Parameter*/, nullptr /*Context*/));
     }
 
-    WebViewResult MapException(void* window, const std::function<void(Window&)>& func) noexcept
+    HRESULT MapException(void* window, const std::function<void(Window&)>& func) noexcept
     {
+        s_error.reset();
+
         try
         {
+            winrt::check_pointer(window);
             Window& internalWindow = *reinterpret_cast<Window*>(window);
             func(internalWindow);
         }
+        catch (const winrt::hresult_error& err)
+        {
+            s_error = err;
+            return err.code();
+        }
         catch (...)
         {
-            return WebViewResult::InternalError;
+            auto hr = to_hresult();
+            s_error = winrt::hresult_error(hr);
+            return hr;
         }
 
-        return WebViewResult::Success;
+        return S_OK;
     }
 }
 
 // Public API
 
-WebViewResult webview_new(
+HRESULT webview_new(
     const char* const title,
     const int32_t width,
     const int32_t height,
     const bool resizable,
     void** window) noexcept
 {
+    s_error.reset();
     *window = nullptr;
-
-    if (title == nullptr || width <= 0 || height <= 0 || window == nullptr)
-    {
-        return WebViewResult::InvalidArgument;
-    }
-
+    
     try
     {
+        if (title == nullptr || width <= 0 || height <= 0 || window == nullptr)
+        {
+            winrt::throw_hresult(E_INVALIDARG);
+        }
+
         EnsureInitialized();
         std::unique_ptr<Window> localWindow(new Window(title, { width, height }, resizable));
         *window = localWindow.release();
     }
+    catch (const winrt::hresult_error& err)
+    {
+        s_error = err;
+        return err.to_abi();
+    }
     catch (...)
     {
-        return WebViewResult::InternalError;
+        auto hr = to_hresult();
+        s_error = winrt::hresult_error(hr);
+        return hr;
     }
-    
-    return WebViewResult::Success;
+
+    return S_OK;
 }
 
 void webview_free(void* window) noexcept
@@ -432,41 +418,41 @@ void webview_string_free(const char* str) noexcept
     }
 }
 
-WebViewResult webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept
+HRESULT webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept
 {
-    if (window == nullptr || webview == nullptr || content == nullptr || !IsValidContentType(contentType))
-    {
-        return WebViewResult::InvalidArgument;
-    }
-
     return MapException(window, [webview, content, contentType](Window& window)
     {
+        if (webview == nullptr || content == nullptr || !IsValidContentType(contentType))
+        {
+            winrt::throw_hresult(E_INVALIDARG);
+        }
+
         window.Run(webview, content, contentType);
     });
 }
 
-WebViewResult webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept
+HRESULT webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept
 {
-    if (window == nullptr || webview == nullptr || source == nullptr)
-    {
-        return WebViewResult::InvalidArgument;
-    }
-
     return MapException(window, [webview, source](Window& window)
     {
+        if (webview == nullptr || source == nullptr)
+        {
+            winrt::throw_hresult(E_INVALIDARG);
+        }
+
         window.RunWithStreamResolver(webview, source);
     });
 }
 
-WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept
+HRESULT webview_eval_script(void* window, const char* script, char** value) noexcept
 {
-    if (window == nullptr || script == nullptr || value == nullptr)
-    {
-        return WebViewResult::InvalidArgument;
-    }
-
     return MapException(window, [script, value](Window& window)
     {
+        if (script == nullptr || value == nullptr)
+        {
+            winrt::throw_hresult(E_INVALIDARG);
+        }
+
         *value = nullptr;
         auto ret = window.EvaluateScript(script);
         *value = new char[ret.length() + 1];
@@ -475,15 +461,34 @@ WebViewResult webview_eval_script(void* window, const char* script, char** value
     });
 }
 
-WebViewResult webview_inject_css(void* window, const char* css) noexcept
+HRESULT webview_inject_css(void* window, const char* css) noexcept
 {
-    if (window == nullptr || css == nullptr)
-    {
-        return WebViewResult::InvalidArgument;
-    }
-
     return MapException(window, [css](Window& window)
     {
+        if (css == nullptr)
+        {
+            winrt::throw_hresult(E_INVALIDARG);
+        }
+
         window.InjectCss(css);
     });
+}
+
+HRESULT webview_get_error_message(char** message) noexcept
+{
+    *message = nullptr;
+    HRESULT hr = S_OK;
+
+    if (s_error)
+    {
+        auto err = *s_error;
+        hr = err.code();
+
+        auto msg = winrt::to_string(err.message());
+        *message = new char[msg.length() + 1];
+        msg.copy(*message, msg.length(), 0);
+        (*message)[msg.length()] = '\0';
+    }
+
+    return hr;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <windows.h>
 
 extern "C"
 {
@@ -10,15 +11,7 @@ extern "C"
         Html = 2
     };
 
-    enum class WebViewResult : uint32_t
-    {
-        Success = 0,
-        InvalidArgument = 1,
-        InternalError = 2,
-        NotFound = 3
-    };
-
-    WebViewResult webview_new(
+    HRESULT webview_new(
         const char* title,
         int32_t width,
         int32_t height,
@@ -27,8 +20,9 @@ extern "C"
     void webview_free(void* window) noexcept;
     void webview_string_free(const char* str) noexcept;
 
-    WebViewResult webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept;
-    WebViewResult webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept;
-    WebViewResult webview_eval_script(void* window, const char* script, char** value) noexcept;
-    WebViewResult webview_inject_css(void* window, const char* css) noexcept;
+    HRESULT webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept;
+    HRESULT webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept;
+    HRESULT webview_eval_script(void* window, const char* script, char** value) noexcept;
+    HRESULT webview_inject_css(void* window, const char* css) noexcept;
+    HRESULT webview_get_error_message(char** message) noexcept;
 }
