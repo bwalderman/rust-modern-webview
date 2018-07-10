@@ -2,7 +2,8 @@ extern crate modern_webview_sys as ffi;
 extern crate include_dir;
 
 use std::ffi::{ CString, CStr };
-use std::path::{ Path };
+use std::marker::PhantomData;
+use std::path::Path;
 use std::os::raw::*;
 use std::ptr;
 use std::fmt;
@@ -74,8 +75,14 @@ struct InternalData<'a> {
 }
 
 /// A thread-safe struct that can be used to dispatch calls on the WebView's UI thread.
-pub struct Dispatcher {
-    window: *mut c_void
+pub struct Dispatcher<'a> {
+    phantom: PhantomData<&'a WebView<'a>>,
+    window: *mut c_void,
+    webview: *mut c_void
+}
+
+struct CallbackInfo<'a> {
+    callback: Box<FnMut(&'a mut WebView<'a>) + 'a>
 }
 
 /// Iterator that provides a sequence of WebView events.
@@ -123,8 +130,8 @@ impl<'a> WebView<'a> {
     }
 
     /// Obtain a dispatcher which can be used to post callbacks to be executed on the WebView's UI thread.
-    pub fn dispatcher(&self) -> Dispatcher {
-        Dispatcher { window: self.window }
+    pub fn dispatcher(&mut self) -> Dispatcher<'a> {
+        Dispatcher { phantom: PhantomData, window: self.window, webview: self as *mut WebView as *mut c_void }
     }
 
     /// Returns a non-blocking event loop iterator. The iterator will return an event if available, or return
@@ -192,15 +199,22 @@ fn ffi_result<T>(result: (T, i32)) -> Result<T> {
     }
 }
 
-impl Dispatcher {
-    pub fn dispatch<F>(&mut self) where F: FnOnce(&mut WebView) {
-        //webview_dispatch(self.window)
+unsafe impl<'a> Send for Dispatcher<'a> {}
+unsafe impl<'a> Sync for Dispatcher<'a> {}
+
+impl<'a> Dispatcher<'a> {
+    pub fn dispatch<F>(&mut self, callback: F) -> Result<()> where F: FnMut(&mut WebView) + 'a {
+        ffi_result(unsafe {
+            let info_ptr = Box::into_raw(Box::new(CallbackInfo { callback: Box::new(callback) }));
+            let result = webview_dispatch(self.window, self.webview, info_ptr as *mut c_void);
+            ((), result)
+        })
     }
 }
 
-impl Clone for Dispatcher {
-    fn clone(&self) -> Dispatcher {
-        Dispatcher { window: self.window }
+impl<'a> Clone for Dispatcher<'a> {
+    fn clone(&self) -> Dispatcher<'a> {
+        Dispatcher { phantom: self.phantom, window: self.window, webview: self.webview }
     }
 }
 
@@ -289,4 +303,11 @@ pub extern "C" fn webview_get_content(webview_ptr: *mut c_void, source: *const c
     }
 
     false
+}
+
+#[no_mangle]
+pub extern "C" fn webview_dispatch_callback(webview_ptr: *mut c_void, info_ptr: *mut c_void) {
+    let mut webview = unsafe { (webview_ptr as *mut WebView).as_mut().unwrap() };
+    let mut info = unsafe { Box::from_raw(info_ptr as *mut CallbackInfo) };
+    (info.callback)(&mut webview);
 }

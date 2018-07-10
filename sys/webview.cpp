@@ -9,6 +9,7 @@
 extern "C"
 {
     extern bool webview_get_content(void* webview, const char* path, const uint8_t** content, size_t* length);
+    extern void webview_dispatch_callback(void* webview, void* callback);
 }
 
 using namespace winrt;
@@ -18,6 +19,8 @@ using namespace Windows::Security::Cryptography;
 using namespace Windows::Web::UI::Interop;
 using namespace Windows::Web::UI;
 using namespace Windows::Web;
+
+#define WM_APP_DISPATCH WM_APP + 1
 
 // UriToStreamResolver class
 namespace
@@ -266,7 +269,19 @@ namespace
             }
         }
 
+        void Dispatch(void* webview, void* callback)
+        {
+            auto info = std::make_unique<DispatchInfo>(DispatchInfo { webview, callback });
+            PostMessage(m_hwnd, WM_APP_DISPATCH, 0, reinterpret_cast<LPARAM>(info.release()));
+        }
+
     private:
+        struct DispatchInfo
+        {
+            void* webview;
+            void* callback;
+        };
+
         static LRESULT CALLBACK s_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             Window* window = nullptr;
@@ -313,6 +328,12 @@ namespace
             }
         }
 
+        void _HandleDispatch(LPARAM lParam)
+        {
+            std::unique_ptr<DispatchInfo> info(reinterpret_cast<DispatchInfo*>(lParam));
+            webview_dispatch_callback(info->webview, info->callback);
+        }
+
         LRESULT _HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         {
             switch (msg)
@@ -322,6 +343,9 @@ namespace
                 break;
             case WM_SIZE:
                 _UpdateBounds();
+                break;
+            case WM_APP_DISPATCH:
+                _HandleDispatch(lParam);
                 break;
             default:
                 return DefWindowProc(m_hwnd, msg, wParam, lParam);
@@ -496,6 +520,14 @@ HRESULT webview_loop(void* window, bool blocking, EventType* event, char** data)
 
         *event = info.type;
         *data = !info.data.empty() ? webview_string_new(info.data) : nullptr;
+    });
+}
+
+HRESULT webview_dispatch(void* window, void* webview, void* callback) noexcept
+{
+    return MapException(window, [webview, callback](Window& window)
+    {
+        window.Dispatch(webview, callback);
     });
 }
 

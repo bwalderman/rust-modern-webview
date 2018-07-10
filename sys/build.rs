@@ -14,6 +14,7 @@ fn main() {
         .whitelist_function("webview_navigate")
         .whitelist_function("webview_navigate_with_streamresolver")
         .whitelist_function("webview_loop")
+        .whitelist_function("webview_dispatch")
         .whitelist_function("webview_free")
         .whitelist_function("webview_string_free")
         .whitelist_function("webview_eval_script")

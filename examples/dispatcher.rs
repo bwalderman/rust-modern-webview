@@ -10,15 +10,15 @@ use std::time::Duration;
 fn main() {
     // Create a simple WebView and dispatcher.
     let mut webview = WebView::new("Rust WebView Basic Example", Content::Html("<h1>Hello World!</h1>"), (1280, 800), true).unwrap();
-    let dispatcher = webview.dispatcher();
+    let mut dispatcher = webview.dispatcher();
 
     // Start a worker thread that will take ownership of the dispatcher.
     let worker = thread::spawn(move || {
         // Sleep for a bit and then dispatch an eval_script call on the main thread.
         thread::sleep(Duration::from_secs(5));
-        // dispatcher.dispatch(|webview, arg| {
-        //     webview.eval_script("window.external.notify('ping')").unwrap();
-        // });
+        dispatcher.dispatch(|webview| {
+            webview.eval_script("document.body.style.backgroundColor = '#0f0';").unwrap();
+        });
     });
 
     // Main loop for the WebView control.
@@ -27,9 +27,6 @@ fn main() {
             match event {
                 Event::Quit => {
                     break 'running;
-                },
-                Event::ScriptNotify(data) => {
-                    println!("Data from script notify: {}", data);
                 },
                 _ => {}
             }
