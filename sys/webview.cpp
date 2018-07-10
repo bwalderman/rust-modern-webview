@@ -1,14 +1,13 @@
 #include "common.hpp"
 #include "webview.hpp"
 #include <string>
+#include <deque>
 #include <winrt/Windows.Web.UI.Interop.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Security.Cryptography.h>
 
 extern "C"
 {
-    extern void webview_generic_callback(void* webview, uint32_t event);
-    extern void webview_script_notify_callback(void* webview, const char* value);
     extern bool webview_get_content(void* webview, const char* path, const uint8_t** content, size_t* length);
 }
 
@@ -54,7 +53,11 @@ namespace
 // Helper functions for WebView Window class
 namespace
 {
-    constexpr uint32_t DOMCONTENTLOADED = 1;
+    struct EventInfo
+    {
+        EventType type;
+        std::string data;
+    };
 
     std::wstring WideStringFromString(const std::string& narrow)
     {
@@ -144,6 +147,9 @@ namespace
             m_control.Settings().IsScriptNotifyAllowed(true);
             m_control.IsVisible(true);
 
+            m_domContentLoadedRevoker = m_control.DOMContentLoaded(winrt::auto_revoke, { this, &Window::OnDOMContentLoaded });
+            m_scriptNotifyRevoker = m_control.ScriptNotify(winrt::auto_revoke, { this, &Window::OnScriptNotify });
+
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
         }
@@ -154,42 +160,28 @@ namespace
             m_process.Terminate();
         }
 
-        int Run(void* webview, const std::string& content, const ContentType contentType)
+        void Navigate(void* webview, const std::string& content, const ContentType contentType)
         {
             m_owner = webview;
 
             if (contentType == ContentType::Url)
             {
-                NavigateToUrl(content);
+                Uri uri(winrt::to_hstring(content));
+                m_control.Navigate(uri);
             }
             else if (contentType == ContentType::Html)
             {
-                NavigateToString(content);
+                m_control.NavigateToString(winrt::to_hstring(content));
             }
-
-            return _RunInternal();
         }
 
-        int RunWithStreamResolver(void* webview, const std::string& path)
+        void NavigateWithStreamResolver(void* webview, const std::string& path)
         {
             m_owner = webview;
 
             auto source = m_control.BuildLocalStreamUri(winrt::to_hstring("WebView"), winrt::to_hstring(path));
             auto resolver = winrt::make_self<UriToStreamResolver>(webview);
             m_control.NavigateToLocalStreamUri(source, resolver.as<IUriToStreamResolver>());
-
-            return _RunInternal();
-        }
-
-        void NavigateToUrl(const std::string& url)
-        {
-            Uri uri(winrt::to_hstring(url.c_str()));
-            m_control.Navigate(uri);
-        }
-
-        void NavigateToString(const std::string& html)
-        {
-            m_control.NavigateToString(winrt::to_hstring(html));
         }
 
         std::string EvaluateScript(const std::string& script)
@@ -218,6 +210,60 @@ namespace
             
             auto op = (m_control.InvokeScriptAsync(winrt::to_hstring("__webview_injectCss"), { winrt::to_hstring(css) }));
             AwaitAsyncOperation(op);
+        }
+
+        EventInfo Loop(const bool blocking)
+        {
+            if (m_events.size() > 0)
+            {
+                auto event = m_events.front();
+                m_events.pop_front();
+                return event;
+            }
+
+            if (blocking)
+            {
+                MSG msg;
+                while (::GetMessage(&msg, nullptr, 0, 0))
+                {
+                    ::TranslateMessage(&msg);
+                    ::DispatchMessage(&msg);
+
+                    if (m_events.size() > 0)
+                    {
+                        auto event = m_events.front();
+                        m_events.pop_front();
+                        return event;
+                    }
+                }
+
+                // WM_QUIT
+                return { EventType::Quit, "" };
+            }
+            else
+            {
+                MSG msg;
+                if (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+                {
+                    ::TranslateMessage(&msg);
+                    ::DispatchMessage(&msg);
+
+                    if (m_events.size() > 0)
+                    {
+                        auto event = m_events.front();
+                        m_events.pop_front();
+                        return event;
+                    }
+                    else if (msg.message == WM_QUIT)
+                    {
+                        return { EventType::Quit, "" };
+                    }
+
+                    return { EventType::None, "" };
+                }
+
+                return { EventType::None, "" };
+            }
         }
 
     private:
@@ -284,29 +330,14 @@ namespace
             return 0;
         }
 
-        int _RunInternal()
-        {
-            auto domContentLoadedRevoker = m_control.DOMContentLoaded(winrt::auto_revoke, { this, &Window::OnDOMContentLoaded });
-            auto scriptNotifyRevoker = m_control.ScriptNotify(winrt::auto_revoke, { this, &Window::OnScriptNotify });
-
-            MSG msg;
-            while (::GetMessage(&msg, nullptr, 0, 0))
-            {
-                ::TranslateMessage(&msg);
-                ::DispatchMessage(&msg);
-            }
-
-            return (int)msg.wParam;
-        }
-
         void OnDOMContentLoaded(const IWebViewControl&, const WebViewControlDOMContentLoadedEventArgs&)
         {
-            webview_generic_callback(m_owner, DOMCONTENTLOADED);
+            m_events.push_back({ EventType::DOMContentLoaded, "" });
         }
 
         void OnScriptNotify(const IWebViewControl&, const WebViewControlScriptNotifyEventArgs& args)
         {
-            webview_script_notify_callback(m_owner, winrt::to_string(args.Value()).c_str());
+            m_events.push_back({ EventType::ScriptNotify, winrt::to_string(args.Value()) });
         }
 
         HWND m_hwnd = nullptr;
@@ -314,6 +345,9 @@ namespace
         winrt::Windows::Web::UI::Interop::WebViewControlProcess m_process;
         winrt::Windows::Web::UI::Interop::WebViewControl m_control = nullptr;
         bool m_injectCssFunctionInitialized = false;
+        std::deque<EventInfo> m_events;
+        winrt::event_revoker<IWebViewControl> m_domContentLoadedRevoker;
+        winrt::event_revoker<IWebViewControl> m_scriptNotifyRevoker;
     };
 }
 
@@ -392,7 +426,7 @@ HRESULT webview_new(
     catch (const winrt::hresult_error& err)
     {
         s_error = err;
-        return err.to_abi();
+        return err.code();
     }
     catch (...)
     {
@@ -410,6 +444,13 @@ void webview_free(void* window) noexcept
     delete internalWindow;
 }
 
+char* webview_string_new(const std::string& source)
+{
+    char* dest = new char[source.length() + 1];
+    strncpy(dest, source.c_str(), source.length() + 1);
+    return dest;
+}
+
 void webview_string_free(const char* str) noexcept
 {
     if (str != nullptr)
@@ -418,7 +459,7 @@ void webview_string_free(const char* str) noexcept
     }
 }
 
-HRESULT webview_run(void* window, void* webview, const char* content, ContentType contentType) noexcept
+HRESULT webview_navigate(void* window, void* webview, const char* content, ContentType contentType) noexcept
 {
     return MapException(window, [webview, content, contentType](Window& window)
     {
@@ -427,11 +468,11 @@ HRESULT webview_run(void* window, void* webview, const char* content, ContentTyp
             winrt::throw_hresult(E_INVALIDARG);
         }
 
-        window.Run(webview, content, contentType);
+        window.Navigate(webview, content, contentType);
     });
 }
 
-HRESULT webview_run_with_streamresolver(void* window, void* webview, const char* source) noexcept
+HRESULT webview_navigate_with_streamresolver(void* window, void* webview, const char* source) noexcept
 {
     return MapException(window, [webview, source](Window& window)
     {
@@ -440,24 +481,37 @@ HRESULT webview_run_with_streamresolver(void* window, void* webview, const char*
             winrt::throw_hresult(E_INVALIDARG);
         }
 
-        window.RunWithStreamResolver(webview, source);
+        window.NavigateWithStreamResolver(webview, source);
+    });
+}
+
+HRESULT webview_loop(void* window, bool blocking, EventType* event, char** data) noexcept
+{
+    *event = EventType::None;
+    *data = nullptr;
+
+    return MapException(window, [blocking, event, data](Window& window)
+    {
+        auto info = window.Loop(blocking);
+
+        *event = info.type;
+        *data = !info.data.empty() ? webview_string_new(info.data) : nullptr;
     });
 }
 
 HRESULT webview_eval_script(void* window, const char* script, char** value) noexcept
 {
+    *value = nullptr;
+
     return MapException(window, [script, value](Window& window)
     {
         if (script == nullptr || value == nullptr)
         {
             winrt::throw_hresult(E_INVALIDARG);
         }
-
-        *value = nullptr;
+    
         auto ret = window.EvaluateScript(script);
-        *value = new char[ret.length() + 1];
-        ret.copy(*value, ret.length(), 0);
-        (*value)[ret.length()] = '\0';
+        *value = webview_string_new(ret);
     });
 }
 
@@ -484,10 +538,7 @@ HRESULT webview_get_error_message(char** message) noexcept
         auto err = *s_error;
         hr = err.code();
 
-        auto msg = winrt::to_string(err.message());
-        *message = new char[msg.length() + 1];
-        msg.copy(*message, msg.length(), 0);
-        (*message)[msg.length()] = '\0';
+        *message = webview_string_new(winrt::to_string(err.message()));
     }
 
     return hr;
