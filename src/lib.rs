@@ -87,7 +87,8 @@ struct CallbackInfo<'a> {
 
 /// Iterator that provides a sequence of WebView events.
 pub struct EventIterator<'a> {
-    webview: &'a WebView<'a>,
+    phantom: PhantomData<&'a WebView<'a>>,
+    window: *mut c_void,
     blocking: bool
 }
 
@@ -136,14 +137,14 @@ impl<'a> WebView<'a> {
 
     /// Returns a non-blocking event loop iterator. The iterator will return an event if available, or return
     /// None once no more events are available.
-    pub fn poll_iter(&self) -> EventIterator {
-        EventIterator { webview: self, blocking: false }
+    pub fn poll_iter(&self) -> EventIterator<'a> {
+        EventIterator { phantom: PhantomData, window: self.window, blocking: false }
     }
 
     /// Returns a blocking event loop iterator. The iterator will return an event if available, or block
     /// until one becomes available.
-    pub fn wait_iter(&self) -> EventIterator {
-        EventIterator { webview: self, blocking: true }
+    pub fn wait_iter(&self) -> EventIterator<'a> {
+        EventIterator { phantom: PhantomData, window: self.window, blocking: true }
     }
 
     /// Execute JavaScript on the top-level page. This function blocks until script execution is complete.
@@ -227,7 +228,7 @@ impl<'a> Iterator for EventIterator<'a> {
         let mut data: *mut c_char = ptr::null_mut();
 
         unsafe {
-            webview_loop(self.webview.window, self.blocking, &mut event, &mut data)
+            webview_loop(self.window, self.blocking, &mut event, &mut data)
         };
 
         match event {
@@ -252,9 +253,9 @@ pub fn webview<'a, S: Into<String>, F>(
     title: &str, content: Content<S>, size: (i32, i32), resizable: bool, mut callback: F) -> Result<()> where F: FnMut(&mut WebView, Event) + 'a {
 
     let mut webview = WebView::new(title, content, size, resizable)?;
-    
+
     'running: loop {
-        while let Some(event) = webview.wait_iter().next() {
+        for event in webview.wait_iter() {
             match event {
                 Event::Quit => {
                     break 'running;

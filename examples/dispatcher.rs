@@ -18,12 +18,12 @@ fn main() {
         thread::sleep(Duration::from_secs(5));
         dispatcher.dispatch(|webview| {
             webview.eval_script("document.body.style.backgroundColor = '#0f0';").unwrap();
-        });
+        }).unwrap();
     });
 
     // Main loop for the WebView control.
     'running: loop {
-        while let Some(event) = webview.poll_iter().next() {
+        for event in webview.poll_iter() {
             match event {
                 Event::Quit => {
                     break 'running;
